@@ -1,0 +1,31 @@
+[project]
+name = "balanceup-backend"
+version = "0.1.0"
+description = "BalanceUp REST API"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.0",
+    "bcrypt>=5.0.0",
+    "fastapi[standard]>=0.135.0",
+    "psycopg[binary]>=3.3.0",
+    "pydantic-settings>=2.12.0",
+    "pyjwt>=2.10.0",
+    "sqlalchemy>=2.1.0",
+    "stripe>=14.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.0.0",
+    "flake8>=7.3.0",
+    "httpx>=0.28.0",
+    "pytest>=9.0.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
