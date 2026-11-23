@@ -12,9 +12,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = True
 
-    DATABASE_URL: str = (
-        "postgresql+psycopg://balanceup:balanceup@localhost:5433/BalanceUp"
-    )
+    DATABASE_URL: str = "postgresql+psycopg://balanceup:balanceup@localhost:5433/BalanceUp"
 
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"

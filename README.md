@@ -63,3 +63,22 @@ npm run lint
 npm run typecheck
 npm test
 ```
+
+## CI (GitHub Actions)
+
+Pull requests and pushes to `main` and `develop` automatically run [`.github/workflows/ci.yml`](.github/workflows/ci.yml), checking:
+- **Backend:** `black --check`, `flake8`, and `pytest` (with PostgreSQL 17 service)
+- **Frontend:** `prettier --check`, `eslint`, `tsc -b --noEmit`, `vitest run`, and `vite build`
+- **Compose:** `docker compose config --quiet`
+
+Run the same checks locally before pushing:
+
+```powershell
+# Windows (PowerShell)
+.\scripts\ci.ps1
+```
+
+```bash
+# macOS / Linux / Git Bash
+bash scripts/ci.sh
+```
