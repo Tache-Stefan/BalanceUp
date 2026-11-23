@@ -6,14 +6,14 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-balanceup}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-balanceup}
-      POSTGRES_DB: ${POSTGRES_DB:-balanceup}
+      POSTGRES_DB: ${POSTGRES_DB:-BalanceUp}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-balanceup} -d ${POSTGRES_DB:-balanceup}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-balanceup} -d ${POSTGRES_DB:-BalanceUp}"]
       interval: 5s
       timeout: 5s
       retries: 5
