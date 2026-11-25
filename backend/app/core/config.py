@@ -1,8 +1,11 @@
 import json
+from pathlib import Path
 from typing import Annotated, Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
@@ -24,7 +27,7 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(ROOT_ENV_FILE, ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

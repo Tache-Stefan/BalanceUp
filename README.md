@@ -51,6 +51,30 @@ uv run pytest
 uv run alembic current
 ```
 
+## Database Migrations (Alembic)
+
+Alembic is configured in [`backend/alembic.ini`](backend/alembic.ini) and [`backend/alembic/env.py`](backend/alembic/env.py), reading `DATABASE_URL` from application settings (root [`.env`](.env) locally or container environment variables in Docker) and `Base.metadata` from [`backend/app/models/__init__.py`](backend/app/models/__init__.py).
+
+When adding or updating the 14 SQLAlchemy ORM models:
+
+1. Import all ORM model classes in [`backend/app/models/__init__.py`](backend/app/models/__init__.py) so `Base.metadata` discovers them.
+2. Generate a migration (formatted automatically with `black` via `post_write_hooks`):
+
+   ```bash
+   # From backend/ (or via `docker compose exec backend ...`)
+   alembic revision --autogenerate -m "create initial schema"
+   ```
+
+3. Review the generated script in `backend/alembic/versions/` — PostgreSQL views (such as `v_user_points` in [`db/01_schema.sql`](db/01_schema.sql)) and some partial/expression indexes must be added or verified manually.
+4. Apply migrations:
+
+   ```bash
+   alembic upgrade head
+   ```
+
+> [!NOTE]
+> On first startup, `docker compose up` initializes PostgreSQL using [`db/01_schema.sql`](db/01_schema.sql) without creating an `alembic_version` table. If running against a database already initialized by `01_schema.sql`, align it with `alembic stamp head` (or reset with `docker compose down -v` once migrations manage the full schema).
+
 ## Frontend Local Tooling (`npm`)
 
 Run commands inside `frontend/`:
