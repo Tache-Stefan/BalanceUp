@@ -1,13 +1,21 @@
 from collections.abc import Generator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import jwt
+import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_role, require_roles
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token, hash_password
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.models.enums import UserRole
 from app.models.user import User
 
@@ -221,3 +229,147 @@ def test_rbac_require_roles_enforces_permissions(db_session: Session) -> None:
 
         assert rbac_client.get("/admin-only", headers=admin_headers).status_code == 200
         assert rbac_client.get("/staff-only", headers=admin_headers).status_code == 200
+
+
+def test_register_hashes_password_and_authenticates_full_lifecycle(
+    client: TestClient, db_session: Session
+) -> None:
+    raw_password = "StrongPassword123!"
+    register_res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "lifecycle@example.com",
+            "display_name": "Lifecycle User",
+            "password": raw_password,
+        },
+    )
+    assert register_res.status_code == 201
+    register_data = register_res.json()
+    user_id = register_data["user"]["id"]
+
+    reg_token_payload = decode_access_token(register_data["access_token"])
+    assert reg_token_payload.sub == str(user_id)
+    assert reg_token_payload.role == UserRole.USER
+
+    db_user = db_session.get(User, user_id)
+    assert db_user is not None
+    assert db_user.password_hash != raw_password
+    assert db_user.password_hash.startswith("$2")
+    assert verify_password(raw_password, db_user.password_hash) is True
+
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "LIFECYCLE@Example.com", "password": raw_password},
+    )
+    assert login_res.status_code == 200
+    login_token = login_res.json()["access_token"]
+
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {login_token}"})
+    assert me_res.status_code == 200
+    assert me_res.json()["id"] == user_id
+    assert me_res.json()["email"] == "lifecycle@example.com"
+
+
+def test_register_ignores_privileged_fields_and_defaults_to_active_user(
+    client: TestClient, db_session: Session
+) -> None:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "escalation@example.com",
+            "display_name": "Normal User",
+            "password": "password123",
+            "role": "admin",
+            "is_active": False,
+            "current_streak_days": 99,
+        },
+    )
+    assert response.status_code == 201
+    user_data = response.json()["user"]
+    assert user_data["role"] == "user"
+    assert user_data["is_active"] is True
+    assert user_data["current_streak_days"] == 0
+
+    db_user = db_session.get(User, user_data["id"])
+    assert db_user is not None
+    assert db_user.role == UserRole.USER
+    assert db_user.is_active is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"email": "bytes@example.com", "display_name": "Byte Limit", "password": "a" * 73},
+        {"email": "utf8@example.com", "display_name": "UTF8 Limit", "password": "ă" * 37},
+        {"email": "blank@example.com", "display_name": "   ", "password": "password123"},
+    ],
+)
+def test_register_rejects_overlong_password_and_blank_display_name(
+    client: TestClient, payload: dict[str, str]
+) -> None:
+    response = client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"email": "not-an-email", "password": "password123"},
+        {"email": "user@example.com", "password": ""},
+    ],
+)
+def test_login_validates_payload(client: TestClient, payload: dict[str, str]) -> None:
+    response = client.post("/api/v1/auth/login", json=payload)
+    assert response.status_code == 422
+
+
+def test_login_unauthorized_includes_bearer_challenge(
+    client: TestClient, db_session: Session
+) -> None:
+    _create_user(db_session, email="challenge@example.com")
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "challenge@example.com", "password": "wrong"},
+    )
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+def test_me_rejects_wrong_scheme_wrong_secret_bad_claims_and_unknown_user(
+    client: TestClient, db_session: Session
+) -> None:
+    user = _create_user(db_session, email="token-checks@example.com")
+    now = datetime.now(UTC)
+    exp = int((now + timedelta(minutes=15)).timestamp())
+
+    wrong_secret_token = jwt.encode(
+        {"sub": str(user.id), "role": user.role.value, "exp": exp},
+        "completely-wrong-secret-key",
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    missing_role_token = jwt.encode(
+        {"sub": str(user.id), "exp": exp},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    non_int_sub_token = jwt.encode(
+        {"sub": "not-an-int", "role": user.role.value, "exp": exp},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+    unknown_user_token = create_access_token(user_id=999_999_999, role=UserRole.USER)
+
+    invalid_headers = [
+        {"Authorization": "Basic dXNlcjpwYXNz"},
+        {"Authorization": "Bearer "},
+        {"Authorization": f"Bearer {wrong_secret_token}"},
+        {"Authorization": f"Bearer {missing_role_token}"},
+        {"Authorization": f"Bearer {non_int_sub_token}"},
+        {"Authorization": f"Bearer {unknown_user_token}"},
+    ]
+
+    for headers in invalid_headers:
+        response = client.get("/api/v1/auth/me", headers=headers)
+        assert response.status_code == 401
+        assert response.headers.get("www-authenticate") == "Bearer"
